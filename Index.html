@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FeelTalk — Talk to a Stranger</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Arial,sans-serif;
+  background:#f7f2f7;
+  color:#302733;
+}
+.app{
+  max-width:600px;
+  min-height:100vh;
+  margin:auto;
+  background:white;
+  display:flex;
+  flex-direction:column;
+}
+header{
+  padding:20px;
+  text-align:center;
+  border-bottom:1px solid #eee;
+}
+.logo{font-size:28px;font-weight:bold}
+.tagline{font-size:14px;color:#777;margin-top:5px}
+main{
+  flex:1;
+  padding:24px 18px;
+  display:flex;
+  flex-direction:column;
+}
+.center{
+  justify-content:center;
+  text-align:center;
+}
+h1{font-size:30px;margin-bottom:10px}
+p{line-height:1.5;color:#666}
+input{
+  width:100%;
+  padding:15px;
+  border:1px solid #ddd;
+  border-radius:12px;
+  font-size:16px;
+  margin:15px 0;
+}
+button{
+  border:0;
+  border-radius:12px;
+  padding:14px 18px;
+  font-size:16px;
+  cursor:pointer;
+}
+.primary{
+  width:100%;
+  background:#6d4aff;
+  color:white;
+  font-weight:bold;
+}
+.secondary{
+  background:#eee;
+  color:#333;
+}
+.danger{
+  background:#ffe5e5;
+  color:#a00000;
+}
+.status{
+  text-align:center;
+  padding:15px;
+  background:#f5f2ff;
+  border-radius:12px;
+  margin-bottom:15px;
+}
+.messages{
+  flex:1;
+  overflow-y:auto;
+  padding:10px 0;
+}
+.msg{
+  max-width:78%;
+  padding:10px 13px;
+  border-radius:15px;
+  margin:7px 0;
+  word-wrap:break-word;
+}
+.mine{
+  margin-left:auto;
+  background:#6d4aff;
+  color:white;
+  border-bottom-right-radius:4px;
+}
+.theirs{
+  background:#eee;
+  border-bottom-left-radius:4px;
+}
+.composer{
+  display:flex;
+  gap:8px;
+  padding-top:10px;
+}
+.composer input{margin:0;flex:1}
+.composer button{background:#6d4aff;color:white}
+.actions{
+  display:flex;
+  gap:8px;
+  margin-top:12px;
+}
+.actions button{flex:1;font-size:14px}
+.small{
+  font-size:12px;
+  color:#888;
+  margin-top:20px;
+}
+.hidden{display:none}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+<header>
+  <div class="logo">❤️ FeelTalk</div>
+  <div class="tagline">A place to talk. A stranger who listens.</div>
+</header>
+
+<main id="home" class="center">
+  <h1>Sometimes a stranger is easier to talk to.</h1>
+  <p>
+    Talk anonymously with someone online.
+    No phone number. No email. Just a temporary nickname.
+  </p>
+
+  <input id="nickname" maxlength="20" placeholder="Choose a nickname">
+
+  <button class="primary" onclick="findStranger()">
+    🎲 Find a Stranger
+  </button>
+
+  <p class="small">
+    Please be respectful. Never share passwords, OTPs, addresses,
+    financial information or other private information.
+  </p>
+</main>
+
+<main id="waiting" class="center hidden">
+  <h1>🔎 Looking for someone...</h1>
+  <div class="status">
+    We're looking for another person who wants to talk.
+  </div>
+  <button class="secondary" onclick="cancelSearch()">Cancel</button>
+</main>
+
+<main id="chat" class="hidden">
+
+  <div class="status">
+    💬 You are talking anonymously with a stranger
+  </div>
+
+  <div id="messages" class="messages"></div>
+
+  <div class="composer">
+    <input id="messageInput" maxlength="500"
+           placeholder="Write something...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <div class="actions">
+    <button class="secondary" onclick="nextStranger()">Next</button>
+    <button class="danger" onclick="reportUser()">Report</button>
+    <button class="danger" onclick="endChat()">End</button>
+  </div>
+
+</main>
+
+</div>
+
+<script type="module">
+
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+
+import {
+  getAuth,
+  signInAnonymously
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+import {
+  getDatabase,
+  ref,
+  set,
+  get,
+  update,
+  push,
+  onValue,
+  runTransaction,
+  remove,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+
+/* =====================================================
+   PUT YOUR FIREBASE CONFIG HERE
+   ===================================================== */
+  
+  
+const firebaseConfig = {
+  apiKey: "AIzaSyAAlcbdR2zlQ_m2lFN5DGBoD22oSS8tD9Q",
+  authDomain: "feeltalk-52c81.firebaseapp.com",
+  databaseURL: "
+https://feeltalk-52c81-default-rtdb.europe-west1.firebasedatabase.app
+",
+  projectId: "feeltalk-52c81",
+  storageBucket: "feeltalk-52c81.firebasestorage.app",
+  messagingSenderId: "820153623744",
+  appId: "1:820153623744:web:ebdbb7063631c3952d7925"
+};
+
+
+/* ===================================================== */
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+let user = null;
+let nickname = "";
+let myWaitingRef = null;
+let roomId = null;
+let partnerUid = null;
+let messagesListener = null;
+let waitingListener = null;
+
+
+/* ---------------- AUTH ---------------- */
+
+await signInAnonymously(auth);
+
+user = auth.currentUser;
+
+
+/* ---------------- SCREEN ---------------- */
+
+function show(id){
+  document.querySelectorAll("main").forEach(x =>
+    x.classList.add("hidden")
+  );
+
+  document.getElementById(id).classList.remove("hidden");
+}
+
+
+/* ---------------- FIND STRANGER ---------------- */
+
+window.findStranger = async function(){
+
+  nickname =
+    document.getElementById("nickname").value.trim();
+
+  if(!nickname){
+    alert("Please choose a nickname first.");
+    return;
+  }
+
+  show("waiting");
+
+  myWaitingRef =
+    ref(db, "waiting/" + user.uid);
+
+  await set(myWaitingRef,{
+    uid:user.uid,
+    nickname:nickname,
+    status:"waiting",
+    createdAt:serverTimestamp()
+  });
+
+  searchForStranger();
+};
+
+
+/* ---------------- MATCHING ---------------- */
+
+async function searchForStranger(){
+
+  const waitingRoot = ref(db,"waiting");
+
+  const snapshot = await get(waitingRoot);
+
+  if(!snapshot.exists()){
+    return;
+  }
+
+  const people = snapshot.val();
+
+  for(const uid in people){
+
+    if(uid === user.uid) continue;
+
+    const person = people[uid];
+
+    if(person.status !== "waiting") continue;
+
+    const candidateRef =
+      ref(db,"waiting/" + uid);
+
+    const result = await runTransaction(
+      candidateRef,
+      current => {
+
+        if(
+          current &&
+          current.status === "waiting"
+        ){
+
+          return {
+            ...current,
+            status:"matched",
+            matchedWith:user.uid
+          };
+
+        }
+
+        return;
+      }
+    );
+
+    if(result.committed){
+
+      partnerUid = uid;
+
+      roomId =
+        [user.uid,partnerUid]
+        .sort()
+        .join("_");
+
+      await set(
+        ref(db,"rooms/" + roomId),
+        {
+          user1:user.uid,
+          user2:partnerUid,
+          user1Name:nickname,
+          user2Name:person.nickname,
+          createdAt:serverTimestamp()
+        }
+      );
+
+      await update(
+        ref(db,"waiting/" + user.uid),
+        {
+          status:"matched",
+          matchedWith:partnerUid,
+          roomId:roomId
+        }
+      );
+
+      startChat();
+      return;
+    }
+  }
+
+  setTimeout(searchForStranger,3000);
+}
+
+
+/* ---------------- WAITING LISTENER ---------------- */
+
+function listenForMatch(){
+
+  if(!myWaitingRef) return;
+
+  waitingListener =
+    onValue(
+      myWaitingRef,
+      snapshot => {
+
+        const data = snapshot.val();
+
+        if(
+          data &&
+          data.status === "matched" &&
+          data.roomId
+        ){
+
+          partnerUid = data.matchedWith;
+          roomId = data.roomId;
+
+          startChat();
+        }
+      }
+    );
+}
+
+
+/* ---------------- CHAT ---------------- */
+
+async function startChat(){
+
+  if(waitingListener){
+    waitingListener();
+    waitingListener=null;
+  }
+
+  show("chat");
+
+  document.getElementById("messages").innerHTML="";
+
+  const messagesRef =
+    ref(db,"rooms/" + roomId + "/messages");
+
+  messagesListener =
+    onValue(
+      messagesRef,
+      snapshot => {
+
+        const box =
+          document.getElementById("messages");
+
+        box.innerHTML="";
+
+        if(!snapshot.exists()) return;
+
+        const messages =
+          snapshot.val();
+
+        Object.values(messages).forEach(msg => {
+
+          const div =
+            document.createElement("div");
+
+          div.className =
+            "msg " +
+            (msg.uid === user.uid
+              ? "mine"
+              : "theirs");
+
+          div.textContent = msg.text;
+
+          box.appendChild(div);
+
+        });
+
+        box.scrollTop = box.scrollHeight;
+      }
+    );
+}
+
+
+/* ---------------- SEND ---------------- */
+
+window.sendMessage = async function(){
+
+  const input =
+    document.getElementById("messageInput");
+
+  const text =
+    input.value.trim();
+
+  if(!text || !roomId) return;
+
+  const messagesRef =
+    ref(db,"rooms/" + roomId + "/messages");
+
+  const newMessage =
+    push(messagesRef);
+
+  await set(newMessage,{
+    uid:user.uid,
+    text:text,
+    timestamp:serverTimestamp()
+  });
+
+  input.value="";
+};
+
+
+/* ---------------- NEXT ---------------- */
+
+window.nextStranger = async function(){
+
+  await endCurrentRoom();
+
+  nickname =
+    document.getElementById("nickname").value.trim();
+
+  show("waiting");
+
+  myWaitingRef =
+    ref(db,"waiting/" + user.uid);
+
+  await set(myWaitingRef,{
+    uid:user.uid,
+    nickname:nickname,
+    status:"waiting",
+    createdAt:serverTimestamp()
+  });
+
+  listenForMatch();
+  searchForStranger();
+};
+
+
+/* ---------------- END ---------------- */
+
+window.endChat = async function(){
+
+  await endCurrentRoom();
+
+  show("home");
+};
+
+
+async function endCurrentRoom(){
+
+  if(messagesListener){
+    messagesListener();
+    messagesListener=null;
+  }
+
+  if(waitingListener){
+    waitingListener();
+    waitingListener=null;
+  }
+
+  if(myWaitingRef){
+    await remove(myWaitingRef);
+    myWaitingRef=null;
+  }
+
+  roomId=null;
+  partnerUid=null;
+}
+
+
+/* ---------------- CANCEL ---------------- */
+
+window.cancelSearch = async function(){
+
+  if(myWaitingRef){
+    await remove(myWaitingRef);
+    myWaitingRef=null;
+  }
+
+  if(waitingListener){
+    waitingListener();
+    waitingListener=null;
+  }
+
+  show("home");
+};
+
+
+/* ---------------- REPORT ---------------- */
+
+window.reportUser = async function(){
+
+  if(!partnerUid){
+
+    alert("There is nobody to report.");
+    return;
+  }
+
+  const reason =
+    prompt("Why are you reporting this person?");
+
+  if(!reason) return;
+
+  const reportRef =
+    push(ref(db,"reports"));
+
+  await set(reportRef,{
+    reporter:user.uid,
+    reported:partnerUid,
+    room:roomId,
+    reason:reason,
+    timestamp:serverTimestamp()
+  });
+
+  alert("Report submitted.");
+
+  await endCurrentRoom();
+
+  show("home");
+};
+
+
+/* Start listener for our waiting record */
+
+listenForMatch();
+
+
+/* Enter key sends message */
+
+document
+  .getElementById("messageInput")
+  .addEventListener("keydown",e => {
+
+    if(e.key === "Enter"){
+      sendMessage();
+    }
+
+  });
+
+</script>
+
+</body>
+  </html>
