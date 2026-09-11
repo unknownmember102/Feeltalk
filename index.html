@@ -277,13 +277,14 @@ window.findStranger = async function(){
     ref(db, "waiting/" + user.uid);
 
   await set(myWaitingRef,{
-    uid:user.uid,
-    nickname:nickname,
-    status:"waiting",
-    createdAt:serverTimestamp()
-  });
+  uid:user.uid,
+  nickname:nickname,
+  status:"waiting",
+  createdAt:serverTimestamp()
+});
 
-  searchForStranger();
+listenForMatch();
+searchForStranger();
 };
 
 
