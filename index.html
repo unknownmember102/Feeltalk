@@ -238,9 +238,14 @@ let waitingListener = null;
 
 /* ---------------- AUTH ---------------- */
 
-await signInAnonymously(auth);
-
-user = auth.currentUser;
+try {
+  await signInAnonymously(auth);
+  user = auth.currentUser;
+  console.log("FeelTalk Firebase connected");
+} catch (error) {
+  console.error("Firebase error:", error);
+  alert("FeelTalk could not connect to Firebase. Please check Firebase configuration.");
+}
 
 
 /* ---------------- SCREEN ---------------- */
